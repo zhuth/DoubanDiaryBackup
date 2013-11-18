@@ -106,7 +106,7 @@ namespace DoubanDiaryBackup
             if (id.EndsWith("/")) id = id.Substring(0, id.Length - 1);
 
             if (!Directory.Exists(peopleId)) Directory.CreateDirectory(peopleId);
-            if (notes.Document.Title.Contains("我的日记"))
+            if (notes.Document.GetElementsByTagName("h1").Count == 1)
             {
                 foreach (HtmlElement div in notes.Document.GetElementsByTagName("div"))
                 {
