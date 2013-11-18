@@ -86,6 +86,7 @@
             this.web.Location = new System.Drawing.Point(0, 0);
             this.web.MinimumSize = new System.Drawing.Size(20, 20);
             this.web.Name = "web";
+            this.web.ScriptErrorsSuppressed = true;
             this.web.Size = new System.Drawing.Size(413, 405);
             this.web.TabIndex = 1;
             this.web.DocumentCompleted += new System.Windows.Forms.WebBrowserDocumentCompletedEventHandler(this.web_DocumentCompleted);
@@ -96,6 +97,7 @@
             this.notes.Location = new System.Drawing.Point(0, 0);
             this.notes.MinimumSize = new System.Drawing.Size(20, 20);
             this.notes.Name = "notes";
+            this.notes.ScriptErrorsSuppressed = true;
             this.notes.Size = new System.Drawing.Size(228, 405);
             this.notes.TabIndex = 1;
             this.notes.DocumentCompleted += new System.Windows.Forms.WebBrowserDocumentCompletedEventHandler(this.notes_DocumentCompleted);

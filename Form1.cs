@@ -69,7 +69,15 @@ namespace DoubanDiaryBackup
 
                 case 1: // 抓取
                     int c = 0;
-                    foreach (HtmlElement link in web.Document.Links)
+                    var divs = web.Document.GetElementsByTagName("div");
+                    HtmlElement article = null;
+                    foreach (HtmlElement div in divs)
+                    {
+                        Console.WriteLine(div.Style);
+                        if (div.GetAttribute("className") == "article") { article = div; break; }
+                    }
+                    if (article == null) error("找不到列表。");
+                    foreach (HtmlElement link in article.GetElementsByTagName("a"))
                     {
                         string ls = link.GetAttribute("href");
                         if (ls.ToLower().StartsWith("http://www.douban.com/note/") && ls.EndsWith("/"))
@@ -98,12 +106,15 @@ namespace DoubanDiaryBackup
             if (id.EndsWith("/")) id = id.Substring(0, id.Length - 1);
 
             if (!Directory.Exists(peopleId)) Directory.CreateDirectory(peopleId);
-            foreach (HtmlElement div in notes.Document.GetElementsByTagName("div"))
+            if (notes.Document.Title.Contains("我的日记"))
             {
-                if (div.GetAttribute("className") == "article")
+                foreach (HtmlElement div in notes.Document.GetElementsByTagName("div"))
                 {
-                    File.WriteAllText(peopleId + "\\" + id + ".html", div.InnerHtml);
-                    break;
+                    if (div.GetAttribute("className") == "article")
+                    {
+                        File.WriteAllText(peopleId + "\\" + id + ".html", div.InnerHtml);
+                        break;
+                    }
                 }
             }
             tmrDownload.Enabled = true;
