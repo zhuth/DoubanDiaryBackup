@@ -6,6 +6,7 @@ using System.Drawing;
 using System.Text;
 using System.Windows.Forms;
 using System.IO;
+using System.Data.SQLite;
 
 namespace DoubanDiaryBackup
 {
@@ -15,6 +16,7 @@ namespace DoubanDiaryBackup
         string task = "";
         string peopleId = "";
         string do_status = "collect";
+        SQLiteConnection conn = null;
         Queue<string> urls = new Queue<string>();
         Dictionary<string, bool> downloaded = new Dictionary<string, bool>();
 
@@ -61,6 +63,17 @@ namespace DoubanDiaryBackup
             }
         }
 
+        private HtmlElement getElementByTagAndClass(HtmlElement container, string tagname, string className)
+        {
+            className = className.ToLower();
+            foreach (HtmlElement c in container.GetElementsByTagName(tagname))
+            {
+                if (c.GetAttribute("className").ToLower() == className)
+                    return c;
+            }
+            return null;
+        }
+
         private void web_Navigated(object sender, WebBrowserNavigatedEventArgs e)
         {
         }
@@ -88,6 +101,10 @@ namespace DoubanDiaryBackup
                     }
                     else
                     {
+                        conn = new SQLiteConnection("data source='" + peopleId + ".db3'");
+                        conn.Open();
+                        SQLiteCommand cmd = new SQLiteCommand("CREATE TABLE IF NOT EXISTS list (id VARCHAR PRIMARY KEY, type VARCHAR, title VARCHAR, status VARCHAR, comment VARCHAR, date VARCHAR, rate VARCHAR, tags VARCHAR) ", conn);
+                        cmd.ExecuteNonQuery();
                         this.Text = "已登录 - " + peopleId;
                         step = 1; start = 0;
                         urls.Clear();
@@ -96,30 +113,79 @@ namespace DoubanDiaryBackup
                     break;
 
                 case 1: // 抓取
+                    var trans = conn.BeginTransaction();
                     int c = 0;
-                    var divs = web.Document.GetElementsByTagName("div");
-                    HtmlElement article = null;
-                    foreach (HtmlElement div in divs)
-                    {
-                        Console.WriteLine(div.Style);
-                        if (div.GetAttribute("className") == "article") { article = div; break; }
-                    }
+                    HtmlElement article = getElementByTagAndClass(web.Document.GetElementsByTagName("html")[0], "div", "article");
                     if (article == null)
                     {
                         error("找不到列表。");
                         return;
                     }
+                    if (task.StartsWith("list"))
+                    {
+                        var items = article.GetElementsByTagName("li");
+                        foreach (HtmlElement item in items)
+                        {
+                            if (item.GetAttribute("className") != "item")
+                                continue;
+                            string id = getElementByTagAndClass(item, "div", "title").GetElementsByTagName("a")[0].GetAttribute("href"),
+                                title = getElementByTagAndClass(item, "div", "title").GetElementsByTagName("a")[0].InnerText,
+                                date = getElementByTagAndClass(item, "div", "date").InnerText,
+                                tags = (getElementByTagAndClass(item, "span", "tags") == null ? "" : getElementByTagAndClass(item, "span", "tags").InnerText),
+                                comment = (getElementByTagAndClass(item, "div", "comment") == null ? "" : getElementByTagAndClass(item, "div", "comment").InnerText);
+                            var dater = getElementByTagAndClass(item, "div", "date");
+                            int rate = 0;
+                            for (rate = 1; rate <= 5; ++rate)
+                                if (getElementByTagAndClass(dater, "span", "rating" + rate + "-t") != null)
+                                    break;
+                            if (rate > 5)
+                                rate = 0;
+                            string[] args = new string[] { id, task, title, do_status, comment, date, rate.ToString(), tags };
+                            for (int i = 0; i < args.Length; ++i)
+                            {
+                                args[i] = args[i].Replace("'", "''");
+                            }
+                            new SQLiteCommand(string.Format(
+                                "REPLACE INTO list(id, type, title, status, comment, date, rate, tags) VALUES('{0}', '{1}', '{2}', '{3}', '{4}', '{5}', '{6}', '{7}')",
+                                args)
+                                , conn).ExecuteNonQuery();
+                            ++c;
+                        }
+                    }
+                    else if (task == "status")
+                    {
+                        foreach (HtmlElement item in article.GetElementsByTagName("div"))
+                        {
+                            if (item.GetAttribute("className") != "status-item")
+                                continue;
+                            string id = getElementByTagAndClass(item, "span", "created_at").GetElementsByTagName("a")[0].GetAttribute("href"),
+                                date = getElementByTagAndClass(item, "span", "created_at").GetAttribute("title"),
+                                content = (item.GetElementsByTagName("blockquote").Count > 0 ? item.GetElementsByTagName("blockquote")[0].InnerHtml : "");
+
+                            string[] args = new string[] { id, date, content };
+                            for (int i = 0; i < args.Length; ++i)
+                                args[i] = args[i].Replace("'", "''");
+                            
+                            int q = new SQLiteCommand(string.Format(
+                                "REPLACE INTO list(id, title, date, type) VALUES('{0}', '{1}', '{2}', 'status')",
+                                args)
+                                , conn).ExecuteNonQuery();
+                            if (q == 0)
+                                Console.WriteLine(args);
+                            ++c;
+                        }
+                    }
+                    trans.Commit();
                     foreach (HtmlElement link in article.GetElementsByTagName("a"))
                     {
-                        string ls = link.GetAttribute("href");
-                        if (matchTask(ls))
+                        string href = link.GetAttribute("href");
+                        if (matchTask(href))
                         {
-                            if (!downloaded.ContainsKey(ls))
+                            if (!downloaded.ContainsKey(href))
                             {
                                 ++c;
-                                downloaded.Add(ls, true);
                                 if (task == "diary" || task == "review" || (task == "status" && Properties.Settings.Default.获取广播详情))
-                                    urls.Enqueue(ls); 
+                                    urls.Enqueue(href); 
                             }
                         }
                     }
@@ -127,6 +193,24 @@ namespace DoubanDiaryBackup
                         tmrDownload.Enabled = true;
                     else
                     {
+                        if (task.StartsWith("list"))
+                        {
+                            if (do_status == "collect")
+                            {
+                                do_status = "do"; start = 0;
+                                tmrDownload.Enabled = true;
+                                return;
+                            }
+                            else if (do_status == "do")
+                            {
+                                do_status = "wish"; start = 0;
+                                tmrDownload.Enabled = true;
+                                return;
+                            } else if (do_status == "wish")
+                            {
+                                do_status = "collect"; start = 0;
+                            }
+                        }
                         error("下载队列完毕！");
                         using (StreamWriter sw = new StreamWriter(peopleId + "\\" +  task + ".list"))
                         {
@@ -143,6 +227,8 @@ namespace DoubanDiaryBackup
         private void notes_DocumentCompleted(object sender, WebBrowserDocumentCompletedEventArgs e)
         {
             //if (!e.Url.AbsolutePath.Contains(".douban.com")) return;
+            if (!downloaded.ContainsKey(e.Url.ToString()))
+                downloaded.Add(e.Url.ToString(), true);
             string id = e.Url.Segments[e.Url.Segments.Length - 1];
             id = task + id;
             if (id.EndsWith("/")) id = id.Substring(0, id.Length - 1);
@@ -271,6 +357,11 @@ namespace DoubanDiaryBackup
             task = "listmusic";
             start = -1; step = 1;
             tmrDownload.Enabled = true;
+        }
+
+        private void 设置ToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+
         }
     }
 }
